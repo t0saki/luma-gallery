@@ -1,0 +1,6 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {contextError,errorPayload} from '../lib/errors.mjs';
+import {buildCatalogueURL} from '../plugins/wordpress.mjs';
+test('invalid category exposes exact origin mismatch and stack without changing validation',()=>{let error;try{buildCatalogueURL({url:'http://127.0.0.1:4180/'},{category:'http://127.0.0.1:4182/category/city/'})}catch(e){error=e}const payload=errorPayload(error,{method:'GET',url:'/api/sources/test/albums'});assert.equal(payload.error,'分类地址无效');assert.equal(payload.diagnostics.code,'INVALID_CATALOGUE_URL');assert.equal(payload.diagnostics.context.expectedOrigin,'http://127.0.0.1:4180');assert.equal(payload.diagnostics.context.actualOrigin,'http://127.0.0.1:4182');assert.match(payload.diagnostics.stack,/resolveCatalogueURL/);assert.ok(payload.diagnostics.id);});
+test('undiscovered category and upstream failure retain different contexts',()=>{assert.throws(()=>buildCatalogueURL({url:'https://example.com/'},{category:'/tag/city/'}),e=>e.context.reason.includes('未从页面'));const error=contextError(new Error('上游 HTTP 503'),{stage:'document.load',upstreamURL:'https://example.com/page/2/'});assert.equal(errorPayload(error).diagnostics.context.stage,'document.load');assert.equal(errorPayload(error).diagnostics.context.upstreamURL,'https://example.com/page/2/');});

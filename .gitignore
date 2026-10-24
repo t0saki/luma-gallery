@@ -1,0 +1,11 @@
+node_modules/
+.local/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+*-preview.jpg
+preview.jpg
+error-details.jpg
+compat-*.jpg

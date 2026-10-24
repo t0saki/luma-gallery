@@ -1,0 +1,12 @@
+{
+  "name": "tosaki 相册 · 通用规则示例",
+  "url": "https://t0saki.com/gallery/",
+  "mode": "static",
+  "rules": {
+    "articleSelector": "section[id^=\"album-\"]",
+    "titleSelector": "h2",
+    "imageSelector": "a.g-item",
+    "originalAttribute": "href",
+    "maxPages": 1
+  }
+}

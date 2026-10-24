@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+.local
+.env
+.env.*
+!.env.example
+*.log
+*.jpg
+.DS_Store
+test
+tools

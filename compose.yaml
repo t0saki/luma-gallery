@@ -1,0 +1,24 @@
+services:
+  luma:
+    image: ghcr.io/t0saki/luma-gallery:latest
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${LUMA_BIND_ADDRESS:-127.0.0.1}:${LUMA_PORT:-4173}:4173"
+    environment:
+      # 可直接把空字符串改成你的访问密码；也可在 .env 里设置同名变量。
+      LUMA_ACCESS_PASSWORD: "${LUMA_ACCESS_PASSWORD:-}"
+      # 容器中的 localhost 是容器自身；宿主机示例站使用 host.docker.internal。
+      LUMA_SOURCE_SHIGUANG_URL: "${LUMA_SOURCE_SHIGUANG_URL:-http://host.docker.internal:4180/}"
+      LUMA_SOURCE_SHIJING_URL: "${LUMA_SOURCE_SHIJING_URL:-http://host.docker.internal:4182/}"
+      LUMA_SOURCE_TOSAKI_URL: "${LUMA_SOURCE_TOSAKI_URL:-http://host.docker.internal:4180/gallery/}"
+      LUMA_ALLOWED_ORIGINS: "${LUMA_ALLOWED_ORIGINS:-http://host.docker.internal:4180,http://host.docker.internal:4182,http://127.0.0.1:4180,http://127.0.0.1:4182}"
+      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - luma-data:/data
+    shm_size: 1gb
+volumes:
+  luma-data:

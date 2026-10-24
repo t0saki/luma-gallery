@@ -1,0 +1,19 @@
+{
+  "albums": [{
+    "id": "my-story",
+    "title": "海边的一个下午",
+    "url": "https://t0saki.com/gallery/#album-26-q3-snapshots",
+    "date": "2026-10-03",
+    "description": "这是图集数据格式示例，使用相册里的一张公开照片演示。",
+    "photos": [{
+      "id": "photo-1",
+      "title": "海边垂钓者低头整理鱼线，远处林岸朦胧",
+      "image": "https://t0saki.com/gallery/thumbs/4292cd1c5658f46d.avif",
+      "original": "https://i.tsk.im/file/26-q3-snapshots/PANA9633.avif",
+      "width": 2850,
+      "height": 4275,
+      "camera": "Panasonic DC-S9 · LUMIX S 70-300/F4.5-5.6",
+      "settings": "300mm · ƒ/6.3 · 1/640s · ISO 100"
+    }]
+  }]
+}

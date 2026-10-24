@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as cheerio from 'cheerio';
+import {readFileSync} from 'node:fs';
+const fixtures=JSON.parse(readFileSync(new URL('./fixtures/local-sites.json',import.meta.url),'utf8'));
+const listFor=name=>({page=1,search=''}={})=>fixtures[name].lists[search?2:page-1];
+const detailFor=name=>({page=1})=>fixtures[name].details[page-1];
+const list0=listFor('4180'),list2=listFor('4182'),detail0=detailFor('4180'),detail2=detailFor('4182'),albums0=[{title:fixtures['4180'].title}],albums2=[{title:fixtures['4182'].title}];
+import {profile as p0,parseCatalogue,parseArticlePage,parseNextPage,buildCatalogueURL} from '../plugins/wordpress.mjs';
+import {profile as p2} from '../plugins/sahifa.mjs';
+import {photoFromNode} from '../lib/parser.mjs';
+for(const [name,profile,renderList,renderDetail,albums,origin,firstCount,pages,photos] of [['4180',p0,list0,detail0,albums0,'http://127.0.0.1:4180',12,2,3],['4182',p2,list2,detail2,albums2,'http://127.0.0.1:4182',20,4,12]]){
+ test(`${name}: list cursor, category discovery and real search form`,()=>{const parsed=parseCatalogue({$:cheerio.load(renderList({origin})),url:origin+'/',profile});assert.equal(parsed.albums.length,firstCount);assert.equal(parsed.categories.length,3);assert.equal(parsed.search.parameter,'s');assert.equal(parsed.nextPage,origin+'/page/2/');const second=parseCatalogue({$:cheerio.load(renderList({origin,page:2})),url:parsed.nextPage,profile});assert.equal(parsed.albums.length+second.albums.length,24);assert.equal(second.nextPage,null);assert.equal(new Set([...parsed.albums,...second.albums].map(a=>a.id)).size,24);const empty=parseCatalogue({$:cheerio.load(renderList({origin,search:'no-results-000'})),url:origin+'/?s=no-results-000',profile});assert.equal(empty.albums.length,0);});
+ test(`${name}: body pagination excludes recommendations and preserves photo order`,()=>{const gathered=[];for(let page=1;page<=pages;page++){const path=name==='4180'?`/content/24/album-001.html${page>1?'/'+page:''}`:`/1001-landscape-album-001/${page>1?page+'/':''}`;const parsed=parseArticlePage({$:cheerio.load(renderDetail({origin,album:albums[0],page})),url:origin+path,profile,photoFromNode});assert.equal(parsed.photos.length,name==='4180'?(page===1?2:1):3);assert.equal(!!parsed.nextPage,page<pages);assert.ok(parsed.recommendations.length>0);assert.ok(parsed.recommendations.every(a=>a.url!==parsed.album.url));gathered.push(...parsed.photos);assert.equal(parsed.album.title,albums[0].title);}assert.equal(gathered.length,photos);assert.equal(new Set(gathered.map(p=>p.original)).size,photos);});
+}
+test('pagination stays in same article; URL filters retain query',()=>{const url='https://example.com/story/';const $=cheerio.load('<div class="page-link"><span class="current">2</span><a href="/story/">1</a><a href="/other/3/">3</a></div>');assert.equal(parseNextPage($,url+'2/',{article:true}),null);assert.throws(()=>buildCatalogueURL({url},{category:'https://other.test/category/a/'}));const q=new URL(buildCatalogueURL({url},{category:'/category/nature/',query:'a & b',categories:[{url:'https://example.com/category/nature/'}]}));assert.equal(q.searchParams.get('s'),'a & b');assert.equal(q.pathname,'/category/nature/');});

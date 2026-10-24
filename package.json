@@ -1,0 +1,17 @@
+{
+  "name": "luma-gallery",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check server.mjs && node --check lib/parser.mjs && node --check lib/network.mjs && node --check lib/downloads.mjs && node --check lib/site-engine.mjs && node --check plugins/wordpress.mjs && node --check plugins/sahifa.mjs && node --check lib/taxonomy.mjs && node --check routes.mjs && node --check lib/config.mjs && node --check lib/auth.mjs",
+    "test": "node --test test/*.test.mjs",
+    "setup:browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "cheerio": "^1.2.0",
+    "playwright": "^1.64.1"
+  }
+}

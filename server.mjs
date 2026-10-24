@@ -1,0 +1,47 @@
+import http from 'node:http';
+import {createAuth,loginPage} from './lib/auth.mjs';
+const auth=createAuth({password:process.env.LUMA_ACCESS_PASSWORD,secure:process.env.PUBLIC_ORIGIN?.startsWith('https://')});
+import {configureSource} from './lib/config.mjs';
+import {errorPayload} from './lib/errors.mjs';
+import {isStreaming,siteCatalogue,siteAlbum,publicAlbum} from './lib/site-engine.mjs';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+import {plugins} from './plugins/registry.mjs';
+import {parseSource,parsePages,validateSource,closeBrowser} from './lib/parser.mjs';
+import {validateURL} from './lib/network.mjs';
+import {jobs,createJob,publicJob,cancelJob,fetchImage,photoFilename,disposition} from './lib/downloads.mjs';
+const root=fileURLToPath(new URL('.',import.meta.url));
+const dataDir=process.env.DATA_DIR||path.join(root,'.local');await mkdir(dataDir,{recursive:true});let saved=[];try{saved=JSON.parse(await readFile(path.join(dataDir,'sources.json'),'utf8')).map(validateSource)}catch{}
+let overrides={};try{overrides=JSON.parse(await readFile(path.join(dataDir,'plugin-urls.json'),'utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
+const sources=new Map([...plugins.map(p=>configureSource(p.source,overrides)),...saved].map(s=>[s.id,s]));const cache=new Map(),pending=new Map();
+const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))};
+async function body(req){let text='';for await(const chunk of req){text+=chunk;if(text.length>100000)throw Error('请求数据过大')}return JSON.parse(text||'{}')}
+async function catalogue(id,refresh=false){const source=sources.get(id);if(!source)throw Error('数据源不存在');const entry=cache.get(id);if(entry&&!refresh&&Date.now()-entry.time<10*60000)return entry;if(pending.has(id))return pending.get(id);const promise=parseSource(source).then(albums=>{if(!albums.length)throw Error('没有找到图集，请检查解析规则');const entry={albums,time:Date.now()};cache.set(id,entry);return entry}).finally(()=>pending.delete(id));pending.set(id,promise);return promise;}
+async function albumById(sourceId,id,options={}){if(isStreaming(sources.get(sourceId)))return siteAlbum(sources.get(sourceId),id,options);const entry=await catalogue(sourceId);const album=entry.albums.find(a=>a.id===id);if(!album)throw Error('图集不存在');if(!album.complete){const [detail]=await parsePages(sources.get(sourceId),album.url);Object.assign(album,detail,{id,url:album.url,complete:true});}return album}
+const summary=a=>({...a,searchText:a.photos.map(p=>[p.title,p.camera,p.settings].filter(Boolean).join(' ')).join(' '),photos:undefined,previews:a.photos.slice(0,3).map(p=>({id:p.id,image:p.image})),photoCount:a.photoCount});
+const types={'.mjs':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg'};
+const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'http://localhost');if(req.headers.origin&&req.headers.origin!==(process.env.PUBLIC_ORIGIN||`http://${req.headers.host}`)){return json(res,403,{error:'不允许跨站调用本地接口'})}if(req.method==='OPTIONS')return json(res,405,{error:'不支持该请求'});
+const parts=url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+if(url.pathname==='/healthz')return json(res,200,{status:'ok'});
+if(url.pathname==='/login'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});return res.end(loginPage)}
+if(url.pathname==='/api/login'&&req.method==='POST'){if(!auth.enabled)return json(res,200,{ok:true});const input=await body(req),cookie=auth.login(input.password,req.socket.remoteAddress);if(!cookie)return json(res,401,{error:'访问密码不正确'});res.setHeader('Set-Cookie',cookie);return json(res,200,{ok:true})}
+if(!auth.allowed(req)){if(parts[0]==='api')return json(res,401,{error:'请先登录后访问',loginRequired:true});res.writeHead(302,{Location:'/login?next='+encodeURIComponent(url.pathname+url.search),'Cache-Control':'no-store'});return res.end()}
+if(url.pathname==='/api/logout'&&req.method==='POST'){res.setHeader('Set-Cookie',auth.logout(req));return json(res,200,{ok:true})}
+if(parts[0]==='api'){
+if(url.pathname==='/api/sources'&&req.method==='GET')return json(res,200,{sources:[...sources.values()]});
+if(url.pathname==='/api/sources'&&req.method==='POST'){const source=validateSource(await body(req));await validateURL(source.url);const albums=await parseSource(source);if(!albums.length)throw Error('没有找到图集，请修改规则');sources.set(source.id,source);cache.set(source.id,{albums,time:Date.now()});await writeFile(path.join(dataDir,'sources.json'),JSON.stringify([...sources.values()].filter(s=>!plugins.some(p=>p.source.id===s.id)),null,2));return json(res,201,{source,albums:albums.map(summary)});}
+if(parts[1]==='sources'&&parts.length===3&&req.method==='PATCH'){const plugin=plugins.find(p=>p.source.id===parts[2]);if(!plugin)throw Error('仅内置插件支持修改地址');const current=sources.get(parts[2]);if(current.urlLocked)throw Error(`该地址由环境变量 ${current.urlEnv} 管理`);const input=await body(req);const nextOverrides={...overrides};if(input.url?.trim())nextOverrides[parts[2]]=input.url.trim();else delete nextOverrides[parts[2]];const configured=configureSource(plugin.source,nextOverrides);await writeFile(path.join(dataDir,'plugin-urls.json'),JSON.stringify(nextOverrides,null,2));overrides=nextOverrides;sources.set(configured.id,configured);cache.delete(configured.id);return json(res,200,{source:configured})}
+if(parts[1]==='sources'&&parts[3]==='albums'&&req.method==='GET'){const source=sources.get(parts[2]);if(isStreaming(source)){const data=await siteCatalogue(source,{query:url.searchParams.get('q')||'',category:url.searchParams.get('category')||'',cursor:url.searchParams.get('cursor')||'',refresh:url.searchParams.get('refresh')==='1'});return json(res,200,{...data,source,albums:data.albums.map(summary)});}const entry=await catalogue(parts[2],url.searchParams.get('refresh')==='1');return json(res,200,{source:sources.get(parts[2]),albums:entry.albums.map(summary),updatedAt:entry.time})}
+if(parts[1]==='sources'&&parts[3]==='albums'&&req.method==='DELETE')throw Error('不支持该操作');
+if(parts[1]==='sources'&&parts[3]==='album'&&req.method==='GET')return json(res,200,{album:publicAlbum(await albumById(parts[2],parts[4],{next:url.searchParams.get('next')==='1',url:url.searchParams.get('url')||''}))});
+if(parts[1]==='media'&&req.method==='GET'){const album=await albumById(parts[2],parts[3]),photo=album.photos.find(p=>p.id===parts[4]);if(!photo)throw Error('图片不存在');const preview=url.searchParams.get('quality')==='preview';const result=await fetchImage(photo,preview?photo.image:photo.original,undefined,album.url);res.writeHead(200,{'Content-Type':result.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff',...(url.searchParams.get('download')==='1'?{'Content-Disposition':disposition(photoFilename(photo,album.photos.indexOf(photo)))}:{})});return res.end(result.body)}
+if(url.pathname==='/api/downloads'&&req.method==='GET')return json(res,200,{jobs:[...jobs.values()].map(publicJob)});
+if(url.pathname==='/api/downloads'&&req.method==='POST'){const data=await body(req);if(data.photoIds!==undefined&&(!Array.isArray(data.photoIds)||data.photoIds.length>1000))throw Error('所选图片格式错误');const album=await albumById(data.sourceId,data.albumId,{all:data.photoIds===undefined});return json(res,202,{job:publicJob(createJob(album,data.photoIds))})}
+if(parts[1]==='downloads'&&parts[2]){const job=jobs.get(parts[2]);if(!job)return json(res,404,{error:'任务不存在或已过期'});if(req.method==='DELETE'){cancelJob(job);return json(res,200,{job:publicJob(job)})}if(parts[3]==='file'&&req.method==='GET'){if(job.status!=='done')throw Error('文件尚未生成');res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':disposition(job.fileName),'Cache-Control':'no-store'});const stream=createReadStream(job.file);stream.on('error',()=>res.destroy());stream.pipe(res);return;}if(req.method==='GET')return json(res,200,{job:publicJob(job)})}
+return json(res,404,{error:'接口不存在'});}
+const publicFiles=new Set(['index.html','app.js','style.css','example.json','preview.jpg','routes.mjs']);const file=url.pathname==='/'||/^\/sources\/[^/]+(?:\/(?:albums\/[^/]+|saved|downloads|settings))?\/?$/.test(url.pathname)?'index.html':url.pathname.slice(1);if(!publicFiles.has(file))return json(res,404,{error:'文件不存在'});res.setHeader('Content-Type',types[path.extname(file)]||'application/octet-stream');res.end(await readFile(path.join(root,file)));}catch(e){if(res.headersSent){res.destroy();return;}const payload=errorPayload(e,{method:req.method,url:req.url});console.error(JSON.stringify(payload,null,2));json(res,400,payload)}});
+const port=Number(process.env.PORT)||4173,host=process.env.HOST||'127.0.0.1';
+server.listen(port,host,()=>console.log(`Luma 图集 → http://${host}:${port}`));
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{for(const j of jobs.values())cancelJob(j);closeBrowser().finally(()=>server.close(()=>process.exit(0)))});
