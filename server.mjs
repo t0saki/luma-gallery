@@ -3,7 +3,7 @@ import {createAuth,loginPage} from './lib/auth.mjs';
 const auth=createAuth({password:process.env.LUMA_ACCESS_PASSWORD,secure:process.env.PUBLIC_ORIGIN?.startsWith('https://')});
 import {configureSource} from './lib/config.mjs';
 import {errorPayload} from './lib/errors.mjs';
-import {isStreaming,siteCatalogue,siteAlbum,publicAlbum} from './lib/site-engine.mjs';
+import {isStreaming,siteCatalogue,siteAlbum,publicAlbum,sitePreview} from './lib/site-engine.mjs';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -36,6 +36,7 @@ if(parts[1]==='sources'&&parts.length===3&&req.method==='PATCH'){const plugin=pl
 if(parts[1]==='sources'&&parts[3]==='albums'&&req.method==='GET'){const source=sources.get(parts[2]);if(isStreaming(source)){const data=await siteCatalogue(source,{query:url.searchParams.get('q')||'',category:url.searchParams.get('category')||'',cursor:url.searchParams.get('cursor')||'',refresh:url.searchParams.get('refresh')==='1'});return json(res,200,{...data,source,albums:data.albums.map(summary)});}const entry=await catalogue(parts[2],url.searchParams.get('refresh')==='1');return json(res,200,{source:sources.get(parts[2]),albums:entry.albums.map(summary),updatedAt:entry.time})}
 if(parts[1]==='sources'&&parts[3]==='albums'&&req.method==='DELETE')throw Error('不支持该操作');
 if(parts[1]==='sources'&&parts[3]==='album'&&req.method==='GET')return json(res,200,{album:publicAlbum(await albumById(parts[2],parts[4],{next:url.searchParams.get('next')==='1',url:url.searchParams.get('url')||''}))});
+if(parts[1]==='covers'&&req.method==='GET'){const source=sources.get(parts[2]);if(!source)throw Error('数据源不存在');const album=isStreaming(source)?await sitePreview(source,parts[3]):(await catalogue(parts[2])).albums.find(a=>a.id===parts[3]);if(!album?.cover)throw Error('封面不存在');const result=await fetchImage({image:album.cover,original:album.cover},album.cover,undefined,album.url);res.writeHead(200,{'Content-Type':result.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});return res.end(result.body)}
 if(parts[1]==='media'&&req.method==='GET'){const album=await albumById(parts[2],parts[3]),photo=album.photos.find(p=>p.id===parts[4]);if(!photo)throw Error('图片不存在');const preview=url.searchParams.get('quality')==='preview';const result=await fetchImage(photo,preview?photo.image:photo.original,undefined,album.url);res.writeHead(200,{'Content-Type':result.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff',...(url.searchParams.get('download')==='1'?{'Content-Disposition':disposition(photoFilename(photo,album.photos.indexOf(photo)))}:{})});return res.end(result.body)}
 if(url.pathname==='/api/downloads'&&req.method==='GET')return json(res,200,{jobs:[...jobs.values()].map(publicJob)});
 if(url.pathname==='/api/downloads'&&req.method==='POST'){const data=await body(req);if(data.photoIds!==undefined&&(!Array.isArray(data.photoIds)||data.photoIds.length>1000))throw Error('所选图片格式错误');const album=await albumById(data.sourceId,data.albumId,{all:data.photoIds===undefined});return json(res,202,{job:publicJob(createJob(album,data.photoIds))})}
