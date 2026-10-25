@@ -9,6 +9,8 @@ services:
     environment:
       # 可直接把空字符串改成你的访问密码；也可在 .env 里设置同名变量。
       LUMA_ACCESS_PASSWORD: "${LUMA_ACCESS_PASSWORD:-}"
+      # 默认允许图片在 CDN 共享缓存；false 时带密码部署的图片禁止共享缓存。
+      LUMA_PUBLIC_IMAGE_CACHE: "${LUMA_PUBLIC_IMAGE_CACHE:-true}"
       # 容器中的 localhost 是容器自身；宿主机示例站使用 host.docker.internal。
       LUMA_SOURCE_SHIGUANG_URL: "${LUMA_SOURCE_SHIGUANG_URL:-http://host.docker.internal:4180/}"
       LUMA_SOURCE_SHIJING_URL: "${LUMA_SOURCE_SHIJING_URL:-http://host.docker.internal:4182/}"
